@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+
+<html lang="nn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Åmdals Verk Gruver - Avvikssystem</title>
+
+<style>
+body{
+font-family: Arial, sans-serif;
+max-width: 800px;
+margin: auto;
+padding: 20px;
+background:#f4f4f4;
+}
+
+h1{
+text-align:center;
+color:#333;
+}
+
+.card{
+background:white;
+padding:20px;
+border-radius:10px;
+margin-bottom:20px;
+box-shadow:0 2px 5px rgba(0,0,0,0.1);
+}
+
+input, textarea, select{
+width:100%;
+padding:10px;
+margin-top:5px;
+margin-bottom:15px;
+box-sizing:border-box;
+}
+
+button{
+background:#006400;
+color:white;
+padding:12px;
+border:none;
+border-radius:5px;
+cursor:pointer;
+width:100%;
+}
+
+button:hover{
+background:#008000;
+}
+
+.avvik{
+background:white;
+padding:15px;
+margin-top:10px;
+border-left:5px solid #006400;
+border-radius:5px;
+}
+</style>
+
+</head>
+
+<body>
+
+<h1>⛏️ Åmdals Verk Gruver</h1>
+<h2>Digitalt Avvikssystem</h2>
+
+<div class="card">
+
+<h3>Registrer avvik</h3>
+
+<label>Dato</label> <input type="date" id="dato">
+
+<label>Guide</label> <input type="text" id="guide">
+
+<label>Type avvik</label> <select id="type">
+
+<option>Personskade</option>
+<option>Nestenulykke</option>
+<option>Teknisk feil</option>
+<option>Bergsikring</option>
+<option>Besøkande</option>
+<option>Anna</option>
+</select>
+
+<label>Beskriving</label>
+
+<textarea id="beskrivelse"></textarea>
+
+<button onclick="lagreAvvik()">Lagre avvik</button>
+
+</div>
+
+<div class="card">
+
+<h3>Registrerte avvik</h3>
+
+<div id="liste"></div>
+
+</div>
+
+<script>
+
+let avvik = JSON.parse(localStorage.getItem("avvik")) || [];
+
+visAvvik();
+
+function lagreAvvik(){
+
+let nyttAvvik = {
+dato: document.getElementById("dato").value,
+guide: document.getElementById("guide").value,
+type: document.getElementById("type").value,
+beskrivelse: document.getElementById("beskrivelse").value
+};
+
+avvik.push(nyttAvvik);
+
+localStorage.setItem("avvik", JSON.stringify(avvik));
+
+document.getElementById("guide").value="";
+document.getElementById("beskrivelse").value="";
+
+visAvvik();
+
+alert("Avvik lagra!");
+}
+
+function visAvvik(){
+
+let html="";
+
+for(let i=0;i<avvik.length;i++){
+
+html += `
+<div class="avvik">
+<b>${avvik[i].dato}</b><br>
+Guide: ${avvik[i].guide}<br>
+Type: ${avvik[i].type}<br>
+${avvik[i].beskrivelse}
+</div>
+`;
+}
+
+document.getElementById("liste").innerHTML=html;
+
+}
+
+</script>
+
+</body>
+</html>
