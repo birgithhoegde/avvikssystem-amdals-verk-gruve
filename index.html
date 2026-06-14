@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="nn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Avvik gruve" />
+    <title>Avvikssystem for besøksgruve</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/icon.svg" />
+    <link rel="stylesheet" href="styles.css?v=17" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Besøksgruve</p>
+          <h1>Digitalt avvikssystem</h1>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" class="primary-button" id="install-app-button" hidden>
+            Installer app
+          </button>
+          <button type="button" class="secondary-button" id="new-report-button">
+            Ny registrering
+          </button>
+          <button type="button" class="secondary-button" id="sync-button">
+            Oppdater fellesliste
+          </button>
+        </div>
+      </header>
+
+      <section class="status-grid" aria-label="Status">
+        <div class="status-tile">
+          <span>Opne saker</span>
+          <strong id="open-count">0</strong>
+        </div>
+        <div class="status-tile status-tile--urgent">
+          <span>Høg/akutt alvor</span>
+          <strong id="urgent-count">0</strong>
+        </div>
+        <div class="status-tile">
+          <span>Risikoobservasjonar</span>
+          <strong id="risk-observation-count">0</strong>
+        </div>
+        <div class="status-tile">
+          <span>Lukka saker</span>
+          <strong id="closed-count">0</strong>
+        </div>
+      </section>
+
+      <span id="sync-label" hidden>Lagring</span>
+      <span id="sync-state" hidden>Lokal</span>
+      <span id="network-state" hidden>Sjekkar</span>
+
+      <section class="settings-band" aria-label="Innstillingar">
+        <details>
+          <summary>Driftsansvarleg og fellesliste</summary>
+          <div class="settings-grid">
+            <label>
+              <span>Driftsansvarleg</span>
+              <input id="manager-name" autocomplete="name" placeholder="Namn" />
+            </label>
+            <label>
+              <span>E-post for varsel</span>
+              <input
+                id="manager-email"
+                type="email"
+                autocomplete="email"
+                placeholder="drift@besoksgruva.no"
+              />
+            </label>
+            <label>
+              <span>Ekstra e-post for varsel</span>
+              <input
+                id="extra-email"
+                type="email"
+                autocomplete="email"
+                placeholder="guidar@museet.no"
+              />
+              <small>Til dømes felles e-postgruppe for guidar: guidar@museet.no</small>
+            </label>
+            <label>
+              <span>Telefon</span>
+              <input id="manager-phone" autocomplete="tel" placeholder="+47" />
+            </label>
+            <label>
+              <span>Webhook for automatisk e-postsending</span>
+              <input id="notify-webhook" placeholder="https://..." />
+              <small>Brukast til automatisk sending med ein gong når e-postteneste er sett opp.</small>
+            </label>
+            <p class="settings-help">
+              Guidegruppa får berre varsel ved risikoobservasjonar, nestenulukker,
+              uønskte hendingar og personskadar. Automatisk sending krev webhook/e-postteneste;
+              utan webhook blir det laga e-postutkast som reserve.
+            </p>
+            <label>
+              <span>Fellesliste URL</span>
+              <input id="cloud-url" placeholder="https://prosjekt.supabase.co" />
+            </label>
+            <label>
+              <span>Fellesliste nøkkel</span>
+              <input id="cloud-key" type="password" placeholder="anon key" />
+            </label>
+            <label>
+              <span>Tabell</span>
+              <input id="cloud-table" placeholder="avvik_reports" />
+            </label>
+            <label class="notify-toggle">
+              <input id="auto-mail" type="checkbox" />
+              <span>Opne e-postutkast automatisk dersom webhook ikkje kan sende</span>
+            </label>
+          </div>
+        </details>
+      </section>
+
+      <div class="workspace-grid">
+        <section class="form-section" aria-label="Meld hending, risiko eller forbetringsforslag">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow" id="form-mode">Ny sak</p>
+              <h2 id="form-title">Meld hending, risiko eller forbetringsforslag</h2>
+            </div>
+            <button type="button" class="ghost-button" id="cancel-edit-button" hidden>
+              Avbryt
+            </button>
+          </div>
+
+          <form class="report-form" id="report-form">
+            <p class="form-intro">
+              Eit avviksskjema er eit formelt verktøy for å registrere uønskte
+              hendingar, nestenulukker eller brot på interne rutinar og lover.
+              Målet er å kartleggje årsaker og setje i verk tiltak for å hindre
+              at det skjer igjen.
+            </p>
+
+            <section class="form-block">
+              <div class="form-row">
+                <label>
+                  <span>Namn på melder</span>
+                  <input id="reported-by" autocomplete="name" required placeholder="Skriv namn" />
+                </label>
+                <label>
+                  <span>Rolle</span>
+                  <select id="reporter-role"></select>
+                </label>
+              </div>
+              <label id="reporter-role-other-wrap" hidden>
+                <span>Kommentar til rolle</span>
+                <input id="reporter-role-other" placeholder="Skriv rolle eller kommentar" />
+              </label>
+
+              <fieldset>
+                <legend>Type registrering</legend>
+                <div class="choice-grid choice-grid--kind" id="kind-choices"></div>
+              </fieldset>
+
+              <fieldset id="severity-section">
+                <legend>Alvorlegheitsgrad</legend>
+                <div class="choice-grid choice-grid--severity" id="severity-choices"></div>
+              </fieldset>
+
+              <label>
+                <span>Område</span>
+                <select id="area"></select>
+              </label>
+
+              <section class="schematic-picker" aria-label="Skjematisk plassering">
+                <div class="schematic-picker-heading">
+                  <div>
+                    <span>Kartpunkt</span>
+                    <strong id="map-point-text">ikkje sett</strong>
+                  </div>
+                  <button type="button" class="ghost-button" id="clear-map-point-button">
+                    Fjern kartpunkt
+                  </button>
+                </div>
+                <div class="schematic-map" id="schematic-map" role="button" tabindex="0">
+                  <svg viewBox="0 0 1000 360" aria-hidden="true">
+                    <rect x="18" y="18" width="964" height="324" class="schematic-frame" />
+                    <path d="M74 76h52v28h-16v-10H74z" class="schematic-building" />
+                    <path d="M92 104h24v12h30" class="schematic-building" />
+                    <line x1="120" y1="105" x2="325" y2="105" class="schematic-route route-red" />
+                    <line x1="325" y1="105" x2="325" y2="168" class="schematic-route route-red" />
+                    <line x1="325" y1="168" x2="565" y2="168" class="schematic-route route-red" />
+                    <line x1="565" y1="168" x2="565" y2="230" class="schematic-route route-red" />
+                    <line x1="565" y1="230" x2="805" y2="230" class="schematic-route route-red" />
+                    <line x1="805" y1="230" x2="805" y2="310" class="schematic-route route-red" />
+                    <line x1="365" y1="105" x2="805" y2="105" class="schematic-route route-blue" />
+                    <line x1="805" y1="105" x2="805" y2="230" class="schematic-route route-blue" />
+                    <rect x="230" y="92" width="745" height="26" class="schematic-tunnel" />
+                    <rect x="280" y="155" width="695" height="26" class="schematic-tunnel" />
+                    <rect x="535" y="218" width="440" height="26" class="schematic-tunnel" />
+                    <circle cx="325" cy="168" r="10" class="schematic-shaft" />
+                    <circle cx="565" cy="230" r="10" class="schematic-shaft" />
+                    <text x="78" y="68">museum</text>
+                    <text x="142" y="100">Bråjordstulen</text>
+                    <text x="350" y="98">Konserthall/Sølvsynken</text>
+                    <text x="825" y="112">Hoffnung malmgang</text>
+                    <text x="825" y="178">Howard malmgang</text>
+                    <text x="825" y="242">Johannes malmgang</text>
+                    <text x="255" y="200">Ingeborg sjakt</text>
+                    <text x="505" y="262">Abel sjakt</text>
+                    <text x="470" y="162">Smia</text>
+                    <text x="520" y="150">Storheisen</text>
+                    <text x="790" y="178" class="vertical-label">Crosscut</text>
+                  </svg>
+                  <span class="schematic-marker" id="schematic-marker" hidden></span>
+                </div>
+              </section>
+
+              <label>
+                <span id="description-label">Kva har skjedd?</span>
+                <textarea
+                  id="description"
+                  required
+                  rows="4"
+                  placeholder="Skriv kort. Du kan leggje til detaljar seinare."
+                ></textarea>
+              </label>
+
+              <label>
+                <span>Mogeleg årsak</span>
+                <input id="cause-note" placeholder="Kva trur du kan vere årsaka?" />
+              </label>
+
+              <label>
+                <span>Forslag til tiltak</span>
+                <textarea
+                  id="cause-improvement"
+                  rows="3"
+                  placeholder="Kva meiner du bør gjerast?"
+                ></textarea>
+              </label>
+
+              <label class="photo-input">
+                <span>Bilete (valfritt, fleire mogleg)</span>
+                <input id="photo" type="file" accept="image/*" capture="environment" multiple />
+              </label>
+            </section>
+
+            <input id="title" type="hidden" />
+            <input id="occurred-at" type="hidden" />
+            <input id="affected-persons" type="hidden" />
+            <input id="potential-consequence" type="hidden" />
+            <select id="shift" hidden></select>
+            <select id="risk-ref" hidden></select>
+            <div class="risk-preview" id="risk-preview" hidden></div>
+            <input id="person-count" type="hidden" value="0" />
+            <select id="person-category" hidden></select>
+            <select id="control-area" hidden></select>
+            <input id="responsible" type="hidden" />
+            <select id="status" hidden></select>
+            <input id="due-date" type="hidden" />
+            <textarea id="immediate-action" hidden></textarea>
+            <label id="close-note-wrap" hidden>
+              <textarea id="close-note" hidden></textarea>
+            </label>
+            <input id="notify-manager" type="checkbox" checked hidden />
+            <div id="immediate-action-wrap" hidden></div>
+            <div id="risk-assessment-section" hidden></div>
+            <div id="risk-probability-choices" hidden></div>
+            <div id="risk-consequence-choices" hidden></div>
+            <div id="risk-score-box" hidden>
+              <strong id="risk-score-value">1</strong>
+              <span id="risk-score-text">Grøn = låg risiko</span>
+            </div>
+            <div id="activity-stopped-choices" hidden></div>
+            <div class="photo-preview" id="photo-preview" hidden>
+              <div class="photo-preview-grid" id="photo-preview-list"></div>
+              <button type="button" class="ghost-button" id="remove-photo-button">
+                Fjern bilete
+              </button>
+            </div>
+
+            <p class="notice" id="form-notice" hidden></p>
+            <p class="form-error" id="form-error" role="alert" hidden></p>
+
+            <div class="form-actions">
+              <button type="submit" class="primary-button" id="save-button">
+                Send registrering
+              </button>
+              <button type="button" class="secondary-button" id="reset-button">
+                Tøm skjema
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section class="board-section" aria-label="Avvikstavle">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow" id="storage-status">Lokal lagring klar</p>
+              <h2>Avvikstavle</h2>
+            </div>
+            <div class="export-actions">
+              <button type="button" class="primary-button" id="export-arcgis-button">
+                Last ned ArcGIS GeoJSON
+              </button>
+              <button type="button" class="secondary-button" id="export-csv-button">
+                Eksporter CSV
+              </button>
+              <button type="button" class="secondary-button" id="export-json-button">
+                Eksporter JSON
+              </button>
+            </div>
+          </div>
+
+          <div class="list-controls">
+            <div class="segmented-control" aria-label="Filter">
+              <button type="button" class="is-active" data-filter="aktive">aktive</button>
+              <button type="button" data-filter="lukka">lukka</button>
+              <button type="button" data-filter="alle">alle</button>
+            </div>
+            <label class="search-field">
+              <span>Søk</span>
+              <input id="search" placeholder="Søk i avvik" />
+            </label>
+          </div>
+
+          <section class="responsible-overview" aria-label="Avvik fordelt på ansvarleg">
+            <div class="responsible-heading">
+              <div>
+                <p class="eyebrow">Fordeling</p>
+                <h3>Avvik per ansvarleg</h3>
+              </div>
+              <span id="responsible-total">0 avvik</span>
+            </div>
+            <div class="responsible-list" id="responsible-list"></div>
+          </section>
+
+          <div class="report-list" id="report-list"></div>
+        </section>
+      </div>
+
+      <section class="import-band" aria-label="Import">
+        <label>
+          <span>Importer JSON</span>
+          <input id="import-json" type="file" accept="application/json,.json" />
+        </label>
+        <button type="button" class="ghost-button danger-button" id="clear-all-button">
+          Slett lokal testdata
+        </button>
+      </section>
+    </main>
+
+    <script src="app.js?v=17"></script>
+  </body>
+</html>
