@@ -112,6 +112,42 @@ label small,
   line-height: 1.35;
 }
 
+.automation-panel {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  padding: 10px;
+}
+
+.automation-panel strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.automation-panel strong[data-state="ready"] {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.automation-panel strong[data-state="offline"] {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.automation-panel strong[data-state="missing"] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 h1,
 h2,
 h3,

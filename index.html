@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=17" />
+    <link rel="stylesheet" href="styles.css?v=19" />
   </head>
   <body>
     <main class="app-shell">
@@ -91,10 +91,16 @@
               <input id="notify-webhook" placeholder="https://..." />
               <small>Brukast til automatisk sending med ein gong når e-postteneste er sett opp.</small>
             </label>
+            <div class="automation-panel">
+              <strong id="email-automation-status">Automatisk e-post er ikkje sett opp</strong>
+              <button type="button" class="secondary-button" id="test-email-button">
+                Send testvarsel
+              </button>
+            </div>
             <p class="settings-help">
               Guidegruppa får berre varsel ved risikoobservasjonar, nestenulukker,
-              uønskte hendingar og personskadar. Automatisk sending krev webhook/e-postteneste;
-              utan webhook blir det laga e-postutkast som reserve.
+              uønskte hendingar og personskadar. Med webhook/e-postteneste blir e-post sendt
+              heilt automatisk. Utan webhook opnar appen ferdig e-postutkast automatisk.
             </p>
             <label>
               <span>Fellesliste URL</span>
@@ -108,10 +114,7 @@
               <span>Tabell</span>
               <input id="cloud-table" placeholder="avvik_reports" />
             </label>
-            <label class="notify-toggle">
-              <input id="auto-mail" type="checkbox" />
-              <span>Opne e-postutkast automatisk dersom webhook ikkje kan sende</span>
-            </label>
+            <input id="auto-mail" type="checkbox" checked hidden />
           </div>
         </details>
       </section>
@@ -346,6 +349,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=17"></script>
+    <script src="app.js?v=19"></script>
   </body>
 </html>

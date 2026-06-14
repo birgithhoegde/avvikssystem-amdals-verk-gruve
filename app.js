@@ -360,6 +360,8 @@ function cacheElements() {
     "extra-email",
     "manager-phone",
     "notify-webhook",
+    "email-automation-status",
+    "test-email-button",
     "cloud-url",
     "cloud-key",
     "cloud-table",
@@ -577,6 +579,7 @@ function bindEvents() {
   els.clearAllButton.addEventListener("click", clearLocalData);
   els.syncButton.addEventListener("click", () => syncFromCloud(false));
   els.installAppButton.addEventListener("click", installApp);
+  els.testEmailButton.addEventListener("click", sendTestEmail);
   els.search.addEventListener("input", () => {
     state.search = els.search.value;
     renderList();
@@ -688,6 +691,7 @@ function updateNetworkState() {
     els.networkState.textContent = "På nett";
   }
 
+  updateEmailAutomationStatus();
   renderSyncState();
 }
 
@@ -701,6 +705,7 @@ function applySettingsToInputs() {
   els.cloudKey.value = state.settings.cloudKey;
   els.cloudTable.value = state.settings.cloudTable;
   els.autoMail.checked = Boolean(state.settings.autoMail);
+  updateEmailAutomationStatus();
 }
 
 function saveSettingsFromInputs() {
@@ -713,11 +718,33 @@ function saveSettingsFromInputs() {
     cloudUrl: els.cloudUrl.value.trim(),
     cloudKey: els.cloudKey.value.trim(),
     cloudTable: els.cloudTable.value.trim() || DEFAULT_SETTINGS.cloudTable,
-    autoMail: els.autoMail.checked
+    autoMail: true
   };
 
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+  updateEmailAutomationStatus();
   renderSyncState();
+}
+
+function updateEmailAutomationStatus() {
+  if (!els.emailAutomationStatus) {
+    return;
+  }
+
+  if (!state.settings.notifyWebhook) {
+    els.emailAutomationStatus.textContent = "E-postutkast blir opna automatisk";
+    els.emailAutomationStatus.dataset.state = "missing";
+    return;
+  }
+
+  if (!isOnline()) {
+    els.emailAutomationStatus.textContent = "Automatisk e-post ventar på nett";
+    els.emailAutomationStatus.dataset.state = "offline";
+    return;
+  }
+
+  els.emailAutomationStatus.textContent = "Automatisk e-post er aktiv";
+  els.emailAutomationStatus.dataset.state = "ready";
 }
 
 function updateChoiceStyles(container) {
@@ -2025,32 +2052,7 @@ async function sendNotification(report, automatic, notificationType = "registrer
 
   if (state.settings.notifyWebhook && isOnline() && recipients.length > 0) {
     try {
-      const response = await fetch(state.settings.notifyWebhook, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          recipients,
-          manager: {
-            name: state.settings.managerName,
-            email: state.settings.managerEmail,
-            extraEmail: state.settings.extraEmail || "",
-            phone: state.settings.managerPhone
-          },
-          notification: {
-            type: notificationType,
-            subject,
-            body
-          },
-          report
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error("Webhook tok ikkje imot varselet");
-      }
-
+      await postNotificationWebhook(report, notificationType, recipients, subject, body);
       await persistReport({
         ...report,
         updatedAt: now,
@@ -2069,6 +2071,87 @@ async function sendNotification(report, automatic, notificationType = "registrer
   }
 
   await prepareMailNotification(report, automatic, now, notificationType, subject, body, recipients);
+}
+
+async function postNotificationWebhook(report, notificationType, recipients, subject, body) {
+  const response = await fetch(state.settings.notifyWebhook, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      recipients,
+      manager: {
+        name: state.settings.managerName,
+        email: state.settings.managerEmail,
+        extraEmail: state.settings.extraEmail || "",
+        phone: state.settings.managerPhone
+      },
+      notification: {
+        type: notificationType,
+        subject,
+        body
+      },
+      report
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error("Webhook tok ikkje imot varselet");
+  }
+}
+
+async function sendTestEmail() {
+  saveSettingsFromInputs();
+
+  const now = new Date().toISOString();
+  const report = {
+    id: "testvarsel",
+    title: "Testvarsel frå avvikssystemet",
+    kind: "Risikoobservasjon",
+    severity: "middels",
+    status: "aktiv",
+    area: "Museum/inngang",
+    mapLabel: "Test",
+    occurredAt: now,
+    createdAt: now,
+    updatedAt: now,
+    reportedBy: state.settings.managerName || "Driftsansvarleg",
+    reporterRole: "Driftsleiar",
+    description: "Dette er eit testvarsel for å kontrollere automatisk e-postsending.",
+    causeNote: "Test av varslingsoppsett",
+    causeImprovement: "Ingen tiltak nødvendig",
+    responsible: state.settings.managerName || "Driftsansvarleg",
+    dueDate: "",
+    immediateAction: "",
+    controlArea: "Varsling",
+    followUps: []
+  };
+  const notificationType = "test";
+  const recipients = notificationRecipients(report, notificationType);
+
+  if (recipients.length === 0) {
+    setStorageStatus("Legg inn minst éi e-postadresse for varsel");
+    return;
+  }
+
+  const subject = buildEmailSubject(report, notificationType);
+  const body = buildEmailBody(report, notificationType);
+
+  if (state.settings.notifyWebhook && isOnline()) {
+    try {
+      await postNotificationWebhook(report, notificationType, recipients, subject, body);
+      setStorageStatus(`Testvarsel sendt automatisk til ${recipients.join(", ")}`);
+      updateEmailAutomationStatus();
+      return;
+    } catch (error) {
+      setStorageStatus(error.message || "Testvarsel kunne ikkje sendast automatisk");
+    }
+  }
+
+  openMailDraft(buildMailto(subject, body, recipients));
+  setStorageStatus(`Testutkast opna til ${recipients.join(", ")}`);
+  updateEmailAutomationStatus();
 }
 
 async function prepareMailNotification(
@@ -2093,13 +2176,8 @@ async function prepareMailNotification(
   const mailto = buildMailto(subject, body, recipients);
   const recipientText = recipients.join(", ");
 
-  if (automatic && state.settings.autoMail) {
-    const anchor = document.createElement("a");
-    anchor.href = mailto;
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+  if (automatic) {
+    openMailDraft(mailto);
   }
 
   await persistReport({
@@ -2111,6 +2189,15 @@ async function prepareMailNotification(
       : `Varsel er klart til ${recipientText}`,
     mailto
   });
+}
+
+function openMailDraft(mailto) {
+  const anchor = document.createElement("a");
+  anchor.href = mailto;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 function buildMailto(subject, body, recipients) {
@@ -2127,7 +2214,9 @@ function buildEmailSubject(report, notificationType) {
         ? "Avvik lukka"
         : notificationType === "manual"
           ? "Varsel"
-          : "Ny registrering";
+          : notificationType === "test"
+            ? "Testvarsel"
+            : "Ny registrering";
 
   return `[Besøksgruve] ${prefix}: ${report.title}`;
 }
@@ -2143,7 +2232,9 @@ function buildEmailBody(report, notificationType) {
         ? "Saka er lukka i avvikssystemet."
         : notificationType === "manual"
           ? "Det er sendt eit manuelt varsel frå avvikssystemet."
-          : "Det er sendt inn ei ny registrering i avvikssystemet.";
+          : notificationType === "test"
+            ? "Dette er eit testvarsel for automatisk e-postsending."
+            : "Det er sendt inn ei ny registrering i avvikssystemet.";
 
   const lines = [
     "Hei,",
@@ -2241,6 +2332,10 @@ function notificationMessagePrefix(notificationType) {
 
   if (notificationType === "close") {
     return "Varsel om lukking";
+  }
+
+  if (notificationType === "test") {
+    return "Testvarsel";
   }
 
   return "E-postvarsel";
