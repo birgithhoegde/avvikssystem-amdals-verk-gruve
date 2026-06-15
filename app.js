@@ -287,7 +287,7 @@ const DEFAULT_SETTINGS = {
   notifyWebhook: "",
   cloudUrl: "",
   cloudKey: "",
-  cloudTable: "avvik_reports",
+  cloudTable: "",
   autoMail: true
 };
 
@@ -341,6 +341,10 @@ function init() {
   updateNetworkState();
   resetForm();
   render();
+
+  if (hasCloudConfig() && isOnline()) {
+    syncFromCloud(true);
+  }
 }
 
 function cacheElements() {
@@ -772,9 +776,19 @@ function setSelectedRadio(name, value) {
 
 function normalizeKindValue(value) {
   const fallback = "Risikoobservasjon";
+  const key = String(value || "").trim();
+  const lowerKey = key.toLowerCase();
   const map = {
+    risikoobservasjon: "Risikoobservasjon",
     "uønska hending": "Uønska hending",
+    "uønsket hendelse": "Uønska hending",
+    "uonska hending": "Uønska hending",
+    "uonsket hendelse": "Uønska hending",
     nestenulukke: "Nestenulukke",
+    nestenulykke: "Nestenulukke",
+    personskade: "Personskade",
+    forbetringsforslag: "Forbetringsforslag",
+    forbedringsforslag: "Forbetringsforslag",
     "fare/risiko": "Risikoobservasjon",
     "teknisk feil": "Uønska hending",
     publikumsavvik: "Uønska hending",
@@ -784,7 +798,7 @@ function normalizeKindValue(value) {
     Anna: "Uønska hending",
     anna: "Uønska hending"
   };
-  const normalized = map[value] || value;
+  const normalized = map[key] || map[lowerKey] || key;
   return KINDS.includes(normalized) ? normalized : fallback;
 }
 
@@ -1276,7 +1290,7 @@ async function persistReport(report, skipCloud = false) {
 
     try {
       await saveCloudReport(report);
-      setStorageStatus("Felleslista er oppdatert");
+      setStorageStatus("Google Sheet er oppdatert");
     } catch (error) {
       setStorageStatus(error.message || "Felles lagring feila");
     }
@@ -1447,7 +1461,7 @@ function responsibleKey(name) {
 
 function renderSyncState() {
   const hasCloud = hasCloudConfig();
-  els.syncLabel.textContent = hasCloud ? "Felleslagring" : "Lagring";
+  els.syncLabel.textContent = hasCloud ? "Google Sheet" : "Lagring";
   els.syncState.textContent = hasCloud ? (isOnline() ? "På" : "Vent") : "Lokal";
   els.syncButton.disabled = !hasCloud || !isOnline();
 }
@@ -2343,7 +2357,7 @@ function notificationMessagePrefix(notificationType) {
 
 async function syncFromCloud(silent) {
   if (!hasCloudConfig()) {
-    setStorageStatus("Fellesliste er ikkje sett opp");
+    setStorageStatus("Google Sheet-webhook er ikkje sett opp");
     return;
   }
 
@@ -2354,83 +2368,40 @@ async function syncFromCloud(silent) {
   }
 
   if (!silent) {
-    setStorageStatus("Hentar fellesliste ...");
+    setStorageStatus("Hentar avvik frå Google Sheet ...");
   }
 
   try {
-    const response = await fetch(
-      `${cleanCloudUrl()}/rest/v1/${encodeURIComponent(
-        state.settings.cloudTable
-      )}?select=id,data,updated_at&order=updated_at.desc`,
-      {
-        headers: cloudHeaders()
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error("Klarte ikkje hente felleslista");
-    }
-
-    const rows = await response.json();
-    const cloudReports = rows.map((row) => ({
-        ...row.data,
-        id: row.data.id || row.id
-      }));
-    const mergedReports = mergeReports(state.reports, cloudReports);
+    const payload = await googleSheetRequest("list");
+    const sheetReports = reportsFromGoogleSheetPayload(payload);
+    const mergedReports = mergeReports(state.reports, sheetReports);
     state.reports = sortReports(mergedReports);
     saveReports();
     render();
 
     await Promise.all(mergedReports.map((report) => saveCloudReport(report)));
-    setStorageStatus("Fellesliste oppdatert");
+    setStorageStatus(`Google Sheet oppdatert (${state.reports.length} avvik)`);
   } catch (error) {
     setStorageStatus(error.message || "Synk feila");
   }
 }
 
 async function saveCloudReport(report) {
-  const response = await fetch(
-    `${cleanCloudUrl()}/rest/v1/${encodeURIComponent(state.settings.cloudTable)}`,
-    {
-      method: "POST",
-      headers: {
-        ...cloudHeaders(),
-        "Content-Type": "application/json",
-        Prefer: "resolution=merge-duplicates"
-      },
-      body: JSON.stringify({
-        id: report.id,
-        data: report,
-        updated_at: report.updatedAt
-      })
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error("Klarte ikkje lagre i felleslista");
-  }
+  await googleSheetRequest("save", {
+    id: report.id,
+    report,
+    data: report,
+    arcgis: arcgisProperties(report),
+    updated_at: report.updatedAt
+  });
 }
 
 async function deleteCloudReport(id) {
-  const response = await fetch(
-    `${cleanCloudUrl()}/rest/v1/${encodeURIComponent(
-      state.settings.cloudTable
-    )}?id=eq.${encodeURIComponent(id)}`,
-    {
-      method: "DELETE",
-      headers: cloudHeaders()
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error("Klarte ikkje slette frå felleslista");
-  }
+  await googleSheetRequest("delete", { id });
 }
 
 function hasCloudConfig() {
-  return Boolean(
-    state.settings.cloudUrl && state.settings.cloudKey && state.settings.cloudTable
-  );
+  return Boolean(state.settings.cloudUrl);
 }
 
 function isOnline() {
@@ -2463,14 +2434,229 @@ function cleanCloudUrl() {
   return state.settings.cloudUrl.replace(/\/+$/, "");
 }
 
-function cloudHeaders() {
+async function googleSheetRequest(action, payload = {}) {
+  const body = JSON.stringify({
+    action,
+    source: "besoksgruve-avvikssystem",
+    ...payload
+  });
+
+  try {
+    const response = await fetch(cleanCloudUrl(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google Sheet-webhook svara ${response.status}`);
+    }
+
+    return parseGoogleSheetResponse(await response.text());
+  } catch (error) {
+    if (action !== "list") {
+      throw new Error(error.message || "Google Sheet-webhook feila");
+    }
+
+    const separator = cleanCloudUrl().includes("?") ? "&" : "?";
+    const response = await fetch(`${cleanCloudUrl()}${separator}action=list`);
+
+    if (!response.ok) {
+      throw new Error("Klarte ikkje hente Google Sheet-lista");
+    }
+
+    return parseGoogleSheetResponse(await response.text());
+  }
+}
+
+function parseGoogleSheetResponse(text) {
+  if (!text) {
+    return { ok: true };
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { ok: true, text };
+  }
+}
+
+function reportsFromGoogleSheetPayload(payload) {
+  const rows = Array.isArray(payload)
+    ? payload
+    : payload.reports || payload.data || payload.rows || payload.items || [];
+
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+
+  return rows.map(reportFromGoogleSheetRow).filter(Boolean);
+}
+
+function reportFromGoogleSheetRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  const nestedReport =
+    row.report ||
+    parseMaybeJson(row.data) ||
+    parseMaybeJson(row.report_json) ||
+    parseMaybeJson(row.avvik_json) ||
+    parseMaybeJson(row.json);
+
+  if (nestedReport && typeof nestedReport === "object") {
+    return normalizeReportFromCloud(nestedReport, row);
+  }
+
+  return normalizeReportFromCloud(flatGoogleSheetRowToReport(row), row);
+}
+
+function parseMaybeJson(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "object") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
+
+function flatGoogleSheetRowToReport(row) {
+  const kind = normalizeKindValue(
+    row.kind || row.type || row.avvik_type || row.type_registrering || row.type_avvik
+  );
+  const description =
+    row.description ||
+    row.skildring ||
+    row.kva_har_skjedd ||
+    row.observasjon ||
+    "";
+  const createdAt = row.created_at || row.oppretta || row.createdAt || new Date().toISOString();
+  const updatedAt = row.updated_at || row.oppdatert || row.updatedAt || createdAt;
+  const title =
+    row.title ||
+    row.tittel ||
+    (description ? createTitleFromDescription(kind, description) : kind);
+
   return {
-    apikey: state.settings.cloudKey,
-    Authorization: `Bearer ${state.settings.cloudKey}`
+    id: row.id || row.avvik_id || createId(),
+    title,
+    description,
+    potentialConsequence: row.potentialConsequence || row.konsekvens || "",
+    immediateAction: row.immediateAction || row.strakstiltak || "",
+    causeNote: row.causeNote || row.arsak || "",
+    causeImprovement: row.causeImprovement || row.arsak_forbetring || row.forslag_tiltak || "",
+    affectedPersons: row.affectedPersons || row.hending_gjeld || "",
+    dueDate: row.due_date || row.frist || "",
+    area: normalizeAreaValue(row.area || row.omrade || row.område || "Museum/inngang"),
+    shift: row.shift || row.nar_oppdaga || "",
+    occurredAt: row.occurredAt || row.hending_tid || createdAt,
+    riskId: row.riskId || row.risikopunkt || "",
+    riskTitle: row.riskTitle || row.risiko_tittel || "",
+    riskProbability: row.riskProbability || row.risiko_s || "",
+    riskConsequence: row.riskConsequence || row.risiko_k || "",
+    riskScore: row.riskScore || row.risiko_score || "",
+    riskMeasure: row.riskMeasure || row.risiko_tiltak || "",
+    controlArea: row.controlArea || row.type_tiltak || "",
+    reportedBy: row.reportedBy || row.meldt_av || "",
+    reporterRole: row.reporterRole || row.melder_rolle || "",
+    reporterRoleOther: row.reporterRoleOther || row.melder_rolle_merknad || "",
+    responsible: row.responsible || row.ansvarleg || "",
+    kind,
+    severity: normalizeSeverityValue(row.severity || row.alvor),
+    status: normalizeStatusValue(row.status),
+    mapX: numberOrNull(row.mapX ?? row.kart_x),
+    mapY: numberOrNull(row.mapY ?? row.kart_y),
+    mapLabel: row.mapLabel || row.kart_stad || row.location || row.area || "",
+    createdAt,
+    updatedAt,
+    closedAt: row.closedAt || row.lukka || "",
+    closeNote: row.closeNote || row.lukkenotat || "",
+    photoDataUrl: row.photoDataUrl || row.photo_url || "",
+    photoName: row.photoName || row.foto_namn || "",
+    photos: parsePhotoRows(row),
+    notificationStatus: row.notificationStatus || row.varsling_status || "ikkje sendt",
+    notificationMessage: row.notificationMessage || row.varsling_melding || "",
+    notificationSentAt: row.notificationSentAt || "",
+    followUps: parseMaybeJson(row.followUps || row.oppfolging) || []
   };
 }
 
-function exportArcgisGeoJson() {
+function normalizeReportFromCloud(report, fallback = {}) {
+  const kind = normalizeKindValue(report.kind || report.type || fallback.type);
+
+  return {
+    ...report,
+    id: report.id || fallback.id || fallback.avvik_id || createId(),
+    kind,
+    title: report.title || fallback.tittel || kind,
+    description: report.description || fallback.skildring || "",
+    area: normalizeAreaValue(report.area || fallback.omrade || fallback.område || "Museum/inngang"),
+    severity: normalizeSeverityValue(report.severity || fallback.alvor),
+    status: normalizeStatusValue(report.status || fallback.status),
+    createdAt: report.createdAt || fallback.created_at || fallback.oppretta || new Date().toISOString(),
+    updatedAt:
+      report.updatedAt ||
+      fallback.updated_at ||
+      fallback.oppdatert ||
+      report.createdAt ||
+      new Date().toISOString(),
+    photos: normalizePhotoList(report.photos),
+    followUps: normalizeFollowUps(report.followUps)
+  };
+}
+
+function parsePhotoRows(row) {
+  const photos = normalizePhotoList(parseMaybeJson(row.photos || row.foto));
+
+  if (photos.length > 0) {
+    return photos;
+  }
+
+  const urls = String(row.photo_urls || row.photo_url || "")
+    .split(";")
+    .map((url) => url.trim())
+    .filter(Boolean);
+  const names = String(row.foto_namn_alle || row.foto_namn || "")
+    .split(";")
+    .map((name) => name.trim());
+
+  return urls.map((dataUrl, index) => ({
+    id: `sheet-photo-${index + 1}`,
+    name: names[index] || `Bilete ${index + 1}`,
+    dataUrl
+  }));
+}
+
+function normalizeSeverityValue(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return SEVERITIES.includes(normalized) ? normalized : "middels";
+}
+
+function normalizeStatusValue(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return STATUSES.includes(normalized) ? normalized : "aktiv";
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+async function exportArcgisGeoJson() {
+  if (hasCloudConfig() && isOnline()) {
+    await syncFromCloud(true);
+  }
+
   const reportsWithMapPoint = sortReports(state.reports).filter(hasMapPoint);
 
   if (reportsWithMapPoint.length === 0) {

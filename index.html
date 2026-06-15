@@ -10,7 +10,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon.svg" />
-    <link rel="stylesheet" href="styles.css?v=19" />
+    <link rel="stylesheet" href="styles.css?v=20" />
   </head>
   <body>
     <main class="app-shell">
@@ -57,7 +57,7 @@
 
       <section class="settings-band" aria-label="Innstillingar">
         <details>
-          <summary>Driftsansvarleg og fellesliste</summary>
+          <summary>Driftsansvarleg, e-post og Google Sheet</summary>
           <div class="settings-grid">
             <label>
               <span>Driftsansvarleg</span>
@@ -103,17 +103,12 @@
               heilt automatisk. Utan webhook opnar appen ferdig e-postutkast automatisk.
             </p>
             <label>
-              <span>Fellesliste URL</span>
-              <input id="cloud-url" placeholder="https://prosjekt.supabase.co" />
+              <span>Google Apps Script-webhook for felles avviksliste</span>
+              <input id="cloud-url" placeholder="https://script.google.com/macros/s/.../exec" />
+              <small>Bruk eksisterande Google Apps Script-webhook som skriv til Google Sheet.</small>
             </label>
-            <label>
-              <span>Fellesliste nøkkel</span>
-              <input id="cloud-key" type="password" placeholder="anon key" />
-            </label>
-            <label>
-              <span>Tabell</span>
-              <input id="cloud-table" placeholder="avvik_reports" />
-            </label>
+            <input id="cloud-key" type="hidden" />
+            <input id="cloud-table" type="hidden" />
             <input id="auto-mail" type="checkbox" checked hidden />
           </div>
         </details>
@@ -349,6 +344,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=19"></script>
+    <script src="app.js?v=20"></script>
   </body>
 </html>
